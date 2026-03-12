@@ -2,7 +2,7 @@ name: IPO Alert Bot
 
 on:
   schedule:
-    - cron: "30 8 * * 1-5"
+    - cron: "15 9 * * 1-5"
   workflow_dispatch:
 
 jobs:
