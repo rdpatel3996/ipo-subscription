@@ -14,11 +14,13 @@ from webdriver_manager.chrome import ChromeDriverManager
 from twilio.rest import Client
 import ssl
 
+
 # -------------------------
 # CONFIG
 # -------------------------
 
-DASHBOARD_URL = "https://www.chittorgarh.com/ipo/ipo_dashboard.asp"
+MAINBOARD_URL = "https://www.chittorgarh.com/ipo/ipo_dashboard.asp"
+SME_URL = "https://www.chittorgarh.com/ipo/ipo_dashboard.asp?a=sme"
 
 EMAIL = os.environ.get("EMAIL")
 SENDER_EMAIL = os.environ.get("EMAIL")
@@ -35,7 +37,7 @@ TO_WHATSAPP = "whatsapp:+917990875608"
 
 
 # -------------------------
-# LOGGING SETUP
+# LOGGING
 # -------------------------
 
 logging.basicConfig(
@@ -47,16 +49,6 @@ logging.basicConfig(
 def log(msg):
     logging.info(msg)
 
-
-# -------------------------
-# WEEKDAY CHECK
-# -------------------------
-
-def is_weekday():
-    today = datetime.today().weekday()
-    return today < 5
-
-
 # -------------------------
 # START CHROME
 # -------------------------
@@ -66,7 +58,8 @@ def start_browser():
     log("Starting Chrome browser")
 
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
+
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
@@ -80,22 +73,20 @@ def start_browser():
 
 
 # -------------------------
-# FIND IPO CLOSING TODAY
+# GET MAINBOARD IPOs
 # -------------------------
 
-def get_closing_today_ipos(driver):
+def get_mainboard_closing_today(driver):
 
-    log("Opening IPO dashboard")
+    log("Checking Mainboard IPOs")
 
-    driver.get(DASHBOARD_URL)
+    driver.get(MAINBOARD_URL)
 
     time.sleep(5)
 
-    log("Scraping dashboard page")
-
     soup = BeautifulSoup(driver.page_source, "html.parser")
 
-    ipo_links = []
+    ipos = []
 
     rows = soup.find_all("tr")
 
@@ -108,16 +99,59 @@ def get_closing_today_ipos(driver):
             if link:
 
                 ipo_name = link.text.strip()
-                ipo_url = urljoin(DASHBOARD_URL, link.get("href"))
+                ipo_url = urljoin(MAINBOARD_URL, link.get("href"))
 
-                log(f"Found IPO closing today: {ipo_name}")
+                log(f"Mainboard IPO closing today: {ipo_name}")
 
-                ipo_links.append({
+                ipos.append({
                     "name": ipo_name,
-                    "url": ipo_url
+                    "url": ipo_url,
+                    "type": "Mainboard IPO"
                 })
 
-    return ipo_links
+    return ipos
+
+
+# -------------------------
+# GET SME IPOs
+# -------------------------
+
+def get_sme_closing_today(driver):
+
+    log("Checking SME IPOs")
+
+    driver.get(SME_URL)
+
+    time.sleep(5)
+
+    soup = BeautifulSoup(driver.page_source, "html.parser")
+
+    ipos = []
+
+    rows = soup.find_all("tr")
+
+    for row in rows:
+
+        ct_badge = row.find("span", string="CT")
+
+        if ct_badge:
+
+            link = row.find("a")
+
+            if link:
+
+                ipo_name = link.text.strip()
+                ipo_url = urljoin(SME_URL, link.get("href"))
+
+                log(f"SME IPO closing today: {ipo_name}")
+
+                ipos.append({
+                    "name": ipo_name,
+                    "url": ipo_url,
+                    "type": "SME IPO"
+                })
+
+    return ipos
 
 
 # -------------------------
@@ -142,8 +176,6 @@ def get_qib_subscription(driver, ipo):
 
         if "Subscription (x)" in headers:
 
-            log("Subscription table found")
-
             rows = table.find_all("tr")
 
             for row in rows:
@@ -160,8 +192,6 @@ def get_qib_subscription(driver, ipo):
                     log(f"QIB Subscription (X) = {qib_subscription}")
 
                     return f"{qib_subscription}x"
-
-    log("QIB subscription not found")
 
     return "Not Found"
 
@@ -183,6 +213,7 @@ def send_email(data):
             html_rows += f"""
             <tr>
             <td>{ipo['name']}</td>
+            <td>{ipo['type']}</td>
             <td>{ipo['qib']}</td>
             <td><a href="{ipo['url']}">View</a></td>
             </tr>
@@ -194,7 +225,8 @@ def send_email(data):
         <table border="1" cellpadding="10">
         <tr>
         <th>IPO</th>
-        <th>QIB Subscription (X)</th>
+        <th>Type</th>
+        <th>QIB Subscription</th>
         <th>Link</th>
         </tr>
 
@@ -211,8 +243,6 @@ def send_email(data):
 
         msg.attach(MIMEText(html, "html"))
 
-        log("Connecting to Gmail SMTP SSL")
-
         context = ssl.create_default_context()
 
         server = smtplib.SMTP_SSL(
@@ -222,11 +252,7 @@ def send_email(data):
             timeout=30
         )
 
-        log("Logging into Gmail")
-
         server.login(SENDER_EMAIL, APP_PASSWORD)
-
-        log("Sending email")
 
         server.sendmail(SENDER_EMAIL, EMAIL, msg.as_string())
 
@@ -235,7 +261,6 @@ def send_email(data):
         log("Email sent successfully")
 
     except Exception as e:
-
         log(f"Email sending failed: {e}")
 
 
@@ -245,6 +270,10 @@ def send_email(data):
 
 def send_whatsapp(data):
 
+    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
+        log("Twilio credentials missing. Skipping WhatsApp alert.")
+        return
+
     log("Sending WhatsApp alert")
 
     message = "IPO Closing Today\n\n"
@@ -253,6 +282,7 @@ def send_whatsapp(data):
 
         message += f"""
 {ipo['name']}
+Type: {ipo['type']}
 QIB: {ipo['qib']}
 {ipo['url']}
 
@@ -260,13 +290,13 @@ QIB: {ipo['qib']}
 
     client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
-    client.messages.create(
+    msg = client.messages.create(
         body=message,
         from_=FROM_WHATSAPP,
         to=TO_WHATSAPP
     )
 
-    log("WhatsApp message sent")
+    log(f"WhatsApp message sent. SID: {msg.sid}")
 
 
 # -------------------------
@@ -277,15 +307,13 @@ def main():
 
     log("Script started")
 
-    if not is_weekday():
-
-        log("Weekend detected. Script exiting")
-
-        return
-
     driver = start_browser()
 
-    ipos = get_closing_today_ipos(driver)
+    mainboard_ipos = get_mainboard_closing_today(driver)
+
+    sme_ipos = get_sme_closing_today(driver)
+
+    ipos = mainboard_ipos + sme_ipos
 
     if not ipos:
 
@@ -301,11 +329,9 @@ def main():
 
         qib = get_qib_subscription(driver, ipo)
 
-        results.append({
-            "name": ipo["name"],
-            "url": ipo["url"],
-            "qib": qib
-        })
+        ipo["qib"] = qib
+
+        results.append(ipo)
 
     send_email(results)
 
