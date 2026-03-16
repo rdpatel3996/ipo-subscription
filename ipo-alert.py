@@ -2,7 +2,6 @@ import os
 import time
 import logging
 import smtplib
-from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from urllib.parse import urljoin
@@ -48,6 +47,7 @@ logging.basicConfig(
 
 def log(msg):
     logging.info(msg)
+
 
 # -------------------------
 # START CHROME
@@ -206,38 +206,46 @@ def send_email(data):
 
         log("Preparing email alert")
 
-        html_rows = ""
+        if not data:
 
-        for ipo in data:
-
-            html_rows += f"""
-            <tr>
-            <td>{ipo['name']}</td>
-            <td>{ipo['type']}</td>
-            <td>{ipo['qib']}</td>
-            <td><a href="{ipo['url']}">View</a></td>
-            </tr>
+            html = """
+            <h2>No IPO closing today</h2>
             """
 
-        html = f"""
-        <h2>IPO Closing Today</h2>
+        else:
 
-        <table border="1" cellpadding="10">
-        <tr>
-        <th>IPO</th>
-        <th>Type</th>
-        <th>QIB Subscription</th>
-        <th>Link</th>
-        </tr>
+            html_rows = ""
 
-        {html_rows}
+            for ipo in data:
 
-        </table>
-        """
+                html_rows += f"""
+                <tr>
+                <td>{ipo['name']}</td>
+                <td>{ipo['type']}</td>
+                <td>{ipo['qib']}</td>
+                <td><a href="{ipo['url']}">View</a></td>
+                </tr>
+                """
+
+            html = f"""
+            <h2>IPO Closing Today</h2>
+
+            <table border="1" cellpadding="10">
+            <tr>
+            <th>IPO</th>
+            <th>Type</th>
+            <th>QIB Subscription</th>
+            <th>Link</th>
+            </tr>
+
+            {html_rows}
+
+            </table>
+            """
 
         msg = MIMEMultipart()
 
-        msg["Subject"] = "IPO Closing Today"
+        msg["Subject"] = "IPO Alert"
         msg["From"] = SENDER_EMAIL
         msg["To"] = EMAIL
 
@@ -276,11 +284,17 @@ def send_whatsapp(data):
 
     log("Sending WhatsApp alert")
 
-    message = "IPO Closing Today\n\n"
+    if not data:
 
-    for ipo in data:
+        message = "No IPO closing today"
 
-        message += f"""
+    else:
+
+        message = "IPO Closing Today\n\n"
+
+        for ipo in data:
+
+            message += f"""
 {ipo['name']}
 Type: {ipo['type']}
 QIB: {ipo['qib']}
@@ -314,14 +328,6 @@ def main():
     sme_ipos = get_sme_closing_today(driver)
 
     ipos = mainboard_ipos + sme_ipos
-
-    if not ipos:
-
-        log("No IPO closing today")
-
-        driver.quit()
-
-        return
 
     results = []
 
